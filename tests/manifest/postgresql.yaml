@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgresql-svc
-  namespace: hive
+  namespace: kudu
   labels:
     app: postgres
 spec:
@@ -18,7 +18,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgresql
-  namespace: hive
+  namespace: kudu
   labels:
     app: postgres
 spec:
@@ -35,23 +35,22 @@ spec:
       containers:
         - name: postgresql
           image: kubernetesbigdataeg/postgres:15.0.0-1
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/
           envFrom:
             - configMapRef:
                 name: postgresql-secret
           volumeMounts:
-            - mountPath: /var/lib/postgresql/data
+            - mountPath: /var/lib/postgresql/data/
               name: postgresdata
       restartPolicy: Always
-      volumes:
-        - name: postgresdata
-          hostPath:
-            path: /postgresdata
   volumeClaimTemplates:
     - metadata:
-        name: datadir
+        name: postgresdata
       spec:
         accessModes: 
           - ReadWriteOnce
@@ -63,7 +62,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgresql-secret
-  namespace: hive
+  namespace: kudu
   labels:
     app: postgres
 data:

@@ -1,9 +1,3 @@
-#
-# NOTE: THIS DOCKERFILE IS GENERATED VIA "apply-templates.sh"
-#
-# PLEASE DO NOT EDIT IT DIRECTLY.
-#
-
 FROM alpine:3.16
 
 # 70 is the standard uid/gid for "postgres" in Alpine
