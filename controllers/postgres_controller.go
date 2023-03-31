@@ -19,9 +19,9 @@ package controllers
 import (
 	"context"
 	"fmt"
-	//"os"
+	"os"
+
 	"strings"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -210,134 +210,25 @@ func (r *PostgresReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	//
 	// 5. Control-loop: Let's deploy/ensure our managed resources for Postgres
 	// - ConfigMap,
-	// - StateFulSet,
 	// - Service ClusterIP,
+	// - StateFulSet,
 	//
 
-	// ConfigMap: Check if the cm already exists, if not create a new one
+	// ConfigMap
 	configMapFound := &corev1.ConfigMap{}
-	err = r.Get(ctx, types.NamespacedName{Name: "postgresql-secret", Namespace: postgres.Namespace}, configMapFound)
-	if err != nil && apierrors.IsNotFound(err) {
-		// Define the default ConfigMap
-		cm, err := r.defaultConfigMapForPostgres(postgres)
-		if err != nil {
-			log.Error(err, "Failed to define new ConfigMap resource for Postgres")
-
-			// The following implementation will update the status
-			meta.SetStatusCondition(&postgres.Status.Conditions, metav1.Condition{Type: typeAvailablePostgres,
-				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create ConfigMap for the custom resource (%s): (%s)",
-					postgres.Name, err)})
-
-			if err := r.Status().Update(ctx, postgres); err != nil {
-				log.Error(err, "Failed to update Postgres status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		log.Info("Creating a new ConfigMap",
-			"ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
-
-		if err = r.Create(ctx, cm); err != nil {
-			log.Error(err, "Failed to create new ConfigMap",
-				"ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
-			return ctrl.Result{}, err
-		}
-
-		// ConfigMap created successfully at this point.
-		// We will requeue the reconciliation so that we can ensure the state
-		// and move forward for the next operations
-		//return ctrl.Result{RequeueAfter: time.Minute}, nil
-
-	} else if err != nil {
-		log.Error(err, "Failed to get ConfigMap")
-		// Let's return the error for the reconciliation be re-trigged again
+	if err := r.ensureResource(ctx, postgres, r.defaultConfigMapForPostgres, configMapFound, "postgres-secret", "ConfigMap"); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Service: Check if the service already exists, if not create a new one
+	// Service
 	serviceFound := &corev1.Service{}
-	err = r.Get(ctx, types.NamespacedName{Name: "postgresql-svc", Namespace: postgres.Namespace}, serviceFound)
-	if err != nil && apierrors.IsNotFound(err) {
-		// Define the pdb resource
-		svc, err := r.serviceForPostgres(postgres)
-		if err != nil {
-			log.Error(err, "Failed to define new Service resource for Postgres")
-
-			// The following implementation will update the status
-			meta.SetStatusCondition(&postgres.Status.Conditions, metav1.Condition{Type: typeAvailablePostgres,
-				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create Service for the custom resource (%s): (%s)",
-					postgres.Name, err)})
-
-			if err := r.Status().Update(ctx, postgres); err != nil {
-				log.Error(err, "Failed to update Postgres status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		log.Info("Creating a new Service",
-			"Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
-
-		if err = r.Create(ctx, svc); err != nil {
-			log.Error(err, "Failed to create new Service",
-				"Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
-			return ctrl.Result{}, err
-		}
-
-		// Service created successfully at this point.
-		// We will requeue the reconciliation so that we can ensure the state
-		// and move forward for the next operations
-		//return ctrl.Result{RequeueAfter: time.Minute}, nil
-
-	} else if err != nil {
-		log.Error(err, "Failed to get Service")
-		// Let's return the error for the reconciliation be re-trigged again
+	if err := r.ensureResource(ctx, postgres, r.serviceForPostgres, serviceFound, "postgres-svc", "Service"); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// StateFulSet: Check if the sts already exists, if not create a new one
-	found := &appsv1.StatefulSet{}
-	err = r.Get(ctx, types.NamespacedName{Name: postgres.Name, Namespace: postgres.Namespace}, found)
-	if err != nil && apierrors.IsNotFound(err) {
-		// Define a new sts
-		dep, err := r.stateFulSetForPostgres(postgres)
-		if err != nil {
-			log.Error(err, "Failed to define new StateFulSet resource for Postgres")
-
-			// The following implementation will update the status
-			meta.SetStatusCondition(&postgres.Status.Conditions, metav1.Condition{Type: typeAvailablePostgres,
-				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create StatefulSet for the custom resource (%s): (%s)", postgres.Name, err)})
-
-			if err := r.Status().Update(ctx, postgres); err != nil {
-				log.Error(err, "Failed to update Postgres status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		log.Info("Creating a new StateFulSet",
-			"StatefulSet.Namespace", dep.Namespace, "StatefulSet.Name", dep.Name)
-
-		if err = r.Create(ctx, dep); err != nil {
-			log.Error(err, "Failed to create new StatefulSet",
-				"StatefulSet.Namespace", dep.Namespace, "StatefulSet.Name", dep.Name)
-			return ctrl.Result{}, err
-		}
-
-		// StatefulSet created successfully at this point.
-		// We will requeue the reconciliation so that we can ensure the state
-		// and move forward for the next operations
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
-	} else if err != nil {
-		log.Error(err, "Failed to get StatefulSet")
-		// Let's return the error for the reconciliation be re-trigged again
+	// Deployment
+	stateFulSetFound := &appsv1.StatefulSet{}
+	if err := r.ensureResource(ctx, postgres, r.stateFulSetForPostgres, stateFulSetFound, postgres.Name, "StateFulSet"); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -345,15 +236,19 @@ func (r *PostgresReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// 6. Control-loop: Check the number of replicas
 	//
 	// The CRD API is defining that the Postgres type, have a PostgresSpec.Size field
-	// to set the quantity of Deployment instances is the desired state on the cluster.
-	// Therefore, the following code will ensure the Deployment size is the same as defined
+	// to set the quantity of StateFulSet instances is the desired state on the cluster.
+	// Therefore, the following code will ensure the StateFulSet size is the same as defined
 	// via the Size spec of the Custom Resource which we are reconciling.
 	size := postgres.Spec.Size
-	if *found.Spec.Replicas != size {
-		found.Spec.Replicas = &size
-		if err = r.Update(ctx, found); err != nil {
-			log.Error(err, "Failed to update Deployment",
-				"Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
+	if stateFulSetFound.Spec.Replicas == nil {
+		log.Error(nil, "Spec is not initialized for StateFulSet", "StateFulSet.Namespace", stateFulSetFound.Namespace, "StateFulSet.Name", stateFulSetFound.Name)
+		return ctrl.Result{}, fmt.Errorf("spec is not initialized for StateFulSet %s/%s", stateFulSetFound.Namespace, stateFulSetFound.Name)
+	}
+	if *stateFulSetFound.Spec.Replicas != size {
+		stateFulSetFound.Spec.Replicas = &size
+		if err = r.Update(ctx, stateFulSetFound); err != nil {
+			log.Error(err, "Failed to update StateFulSet",
+				"StateFulSet.Namespace", stateFulSetFound.Namespace, "StateFulSet.Name", stateFulSetFound.Name)
 
 			// Re-fetch the postgres Custom Resource before update the status
 			// so that we have the latest state of the resource on the cluster and we will avoid
@@ -420,11 +315,11 @@ func (r *PostgresReconciler) doFinalizerOperationsForPostgres(cr *bigdatav1alpha
 }
 
 func (r *PostgresReconciler) defaultConfigMapForPostgres(
-	v *bigdatav1alpha1.Postgres) (*corev1.ConfigMap, error) {
+	v *bigdatav1alpha1.Postgres, resourceName string) (client.Object, error) {
 
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "postgresql-secret",
+			Name:      resourceName,
 			Namespace: v.Namespace,
 			Labels: map[string]string{
 				"app": "postgres",
@@ -445,13 +340,13 @@ func (r *PostgresReconciler) defaultConfigMapForPostgres(
 }
 
 func (r *PostgresReconciler) serviceForPostgres(
-	v *bigdatav1alpha1.Postgres) (*corev1.Service, error) {
+	postgres *bigdatav1alpha1.Postgres, resourceName string) (client.Object, error) {
 
-	labels := labels(v, "postgres")
+	labels := labelsForPostgres(postgres.Name)
 	s := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "postgres-svc",
-			Namespace: v.Namespace,
+			Name:      resourceName,
+			Namespace: postgres.Namespace,
 			Labels:    labels,
 		},
 		Spec: corev1.ServiceSpec{
@@ -464,7 +359,7 @@ func (r *PostgresReconciler) serviceForPostgres(
 		},
 	}
 
-	if err := ctrl.SetControllerReference(v, s, r.Scheme); err != nil {
+	if err := ctrl.SetControllerReference(postgres, s, r.Scheme); err != nil {
 		return nil, err
 	}
 
@@ -473,10 +368,9 @@ func (r *PostgresReconciler) serviceForPostgres(
 
 // stateFulSetForPostgres returns a Postgres StateFulSet object
 func (r *PostgresReconciler) stateFulSetForPostgres(
-	postgres *bigdatav1alpha1.Postgres) (*appsv1.StatefulSet, error) {
+	postgres *bigdatav1alpha1.Postgres, resourceName string) (client.Object, error) {
 
-	ls := labelsForPostgres(postgres.Name)
-	labels := labels(postgres, "postgres")
+	labels := labelsForPostgres(postgres.Name)
 
 	replicas := postgres.Spec.Size
 
@@ -488,16 +382,16 @@ func (r *PostgresReconciler) stateFulSetForPostgres(
 
 	fastdisks := "fast-disks"
 
-	dep := &appsv1.StatefulSet{
+	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      postgres.Name,
+			Name:      resourceName,
 			Namespace: postgres.Namespace,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: "postgres-svc",
 			Replicas:    &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: ls,
+				MatchLabels: labels,
 			},
 			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
 				Type:          "RollingUpdate",
@@ -505,7 +399,7 @@ func (r *PostgresReconciler) stateFulSetForPostgres(
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: ls,
+					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
@@ -533,7 +427,7 @@ func (r *PostgresReconciler) stateFulSetForPostgres(
 							{
 								ConfigMapRef: &corev1.ConfigMapEnvSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "postgresql-secret",
+										Name: "postgres-secret",
 									},
 								},
 							},
@@ -561,10 +455,10 @@ func (r *PostgresReconciler) stateFulSetForPostgres(
 
 	// Set the ownerRef for the Deployment
 	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/
-	if err := ctrl.SetControllerReference(postgres, dep, r.Scheme); err != nil {
+	if err := ctrl.SetControllerReference(postgres, sts, r.Scheme); err != nil {
 		return nil, err
 	}
-	return dep, nil
+	return sts, nil
 }
 
 // labelsForPostgres returns the labels for selecting the resources
@@ -575,7 +469,8 @@ func labelsForPostgres(name string) map[string]string {
 	if err == nil {
 		imageTag = strings.Split(image, ":")[1]
 	}
-	return map[string]string{"app.kubernetes.io/name": "Postgres",
+	return map[string]string{
+		"app.kubernetes.io/name":       "Postgres",
 		"app.kubernetes.io/instance":   name,
 		"app.kubernetes.io/version":    imageTag,
 		"app.kubernetes.io/part-of":    "postgres-operator",
@@ -587,19 +482,12 @@ func labelsForPostgres(name string) map[string]string {
 // imageForPostgres gets the Operand image which is managed by this controller
 // from the POSTGRES_IMAGE environment variable defined in the config/manager/manager.yaml
 func imageForPostgres() (string, error) {
-	/*var imageEnvVar = "POSTGRES_IMAGE"
+	var imageEnvVar = "POSTGRES_IMAGE"
 	image, found := os.LookupEnv(imageEnvVar)
 	if !found {
-		return "", fmt.Errorf("Unable to find %s environment variable with the image", imageEnvVar)
-	}*/
-	image := "docker.io/kubernetesbigdataeg/postgres:15.0.0-1"
-	return image, nil
-}
-
-func labels(v *bigdatav1alpha1.Postgres, l string) map[string]string {
-	return map[string]string{
-		"app": l,
+		return "", fmt.Errorf("unable to find %s environment variable with the image", imageEnvVar)
 	}
+	return image, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -610,4 +498,47 @@ func (r *PostgresReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&bigdatav1alpha1.Postgres{}).
 		Owns(&appsv1.Deployment{}).
 		Complete(r)
+}
+
+func (r *PostgresReconciler) ensureResource(ctx context.Context, postgres *bigdatav1alpha1.Postgres, createResourceFunc func(*bigdatav1alpha1.Postgres, string) (client.Object, error), foundResource client.Object, resourceName string, resourceType string) error {
+	log := log.FromContext(ctx)
+	err := r.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: postgres.Namespace}, foundResource)
+	if err != nil && apierrors.IsNotFound(err) {
+		resource, err := createResourceFunc(postgres, resourceName)
+		if err != nil {
+			log.Error(err, fmt.Sprintf("Failed to define new %s resource for Postgres", resourceType))
+
+			// The following implementation will update the status
+			meta.SetStatusCondition(&postgres.Status.Conditions, metav1.Condition{Type: typeAvailablePostgres,
+				Status: metav1.ConditionFalse, Reason: "Reconciling",
+				Message: fmt.Sprintf("Failed to create %s for the custom resource (%s): (%s)", resourceType, postgres.Name, err)})
+
+			if err := r.Status().Update(ctx, postgres); err != nil {
+				log.Error(err, "Failed to update Postgres status")
+				return err
+			}
+
+			return err
+		}
+
+		log.Info(fmt.Sprintf("Creating a new %s", resourceType),
+			fmt.Sprintf("%s.Namespace", resourceType), resource.GetNamespace(), fmt.Sprintf("%s.Name", resourceType), resource.GetName())
+
+		if err = r.Create(ctx, resource); err != nil {
+			log.Error(err, fmt.Sprintf("Failed to create new %s", resourceType),
+				fmt.Sprintf("%s.Namespace", resourceType), resource.GetNamespace(), fmt.Sprintf("%s.Name", resourceType), resource.GetName())
+			return err
+		}
+
+		if err := r.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: postgres.Namespace}, foundResource); err != nil {
+			log.Error(err, fmt.Sprintf("Failed to get newly created %s", resourceType))
+			return err
+		}
+
+	} else if err != nil {
+		log.Error(err, fmt.Sprintf("Failed to get %s", resourceType))
+		return err
+	}
+
+	return nil
 }
