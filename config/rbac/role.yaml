@@ -8,6 +8,20 @@ rules:
 - apiGroups:
   - apps
   resources:
+  - configmaps
+  - deployments
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
   - deployments
   verbs:
   - create
@@ -43,6 +57,16 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - services
+  verbs:
+  - create
+  - get
+  - list
+  - watch
 - apiGroups:
   - ""
   resources:
